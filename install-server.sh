@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# OpenStreetMap Tile Server Installer 
+# OpenStreetMap Tile Server Installer
 # Ubuntu Server 24.04/26.04 LTS 
 # =============================================================================
 set -e
@@ -28,9 +28,17 @@ if [ "$ARCH" = "arm64" ]; then MAPNIK_DIR="/usr/lib/aarch64-linux-gnu/mapnik/4.2
 elif [ "$ARCH" = "amd64" ]; then MAPNIK_DIR="/usr/lib/x86_64-linux-gnu/mapnik/4.2/input"
 else log_error "Неподдерживаемая архитектура: $ARCH"; fi
 
-log_info "Начинаем безопасную установку/обновление OSM сервера..."
+SERVER_IP=$(hostname -I | awk '{print $1}')
 
-log_info "Установка зависимостей..."
+log_info "==============================================================================="
+log_info "Установка OSM тайл-сервера"
+log_info "Пользователь: ${APP_USER}"
+log_info "IP-адрес: ${SERVER_IP}"
+log_info "Архитектура: ${ARCH}"
+log_info "Версия стилей: ${CARTO_VERSION}"
+log_info "==============================================================================="
+
+log_info "Установка системных зависимостей..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq postgresql postgresql-contrib postgis osm2pgsql gdal-bin \
@@ -99,8 +107,10 @@ TILESIZE=256
 MAXZOOM=20
 EOF
 
+
 log_info "Настройка Apache..."
 a2enmod tile headers > /dev/null 2>&1 || true
+
 cat > /etc/apache2/sites-available/osm-tiles.conf << EOF
 <VirtualHost *:80>
     ServerName localhost
@@ -113,13 +123,38 @@ cat > /etc/apache2/sites-available/osm-tiles.conf << EOF
     </Directory>
 </VirtualHost>
 EOF
+
 a2ensite osm-tiles > /dev/null 2>&1 || true
 a2dissite 000-default > /dev/null 2>&1 || true
+
+cat > /var/www/html/index.html << HTMLEOF
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>OpenStreetMap Tile Server</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <style>body { margin: 0; padding: 0; } #map { width: 100%; height: 100vh; }</style>
+</head>
+<body>
+    <div id="map"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        var map = L.map('map').setView([50, 130], 5);
+        L.tileLayer('/osm_tiles/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors',
+            maxZoom: 20
+        }).addTo(map);
+    </script>
+</body>
+</html>
+HTMLEOF
+chmod 644 /var/www/html/index.html
 
 log_info "Настройка passwordless sudo..."
 echo "${APP_USER} ALL=(${DB_RENDER}) NOPASSWD: /usr/bin/osm2pgsql" > /etc/sudoers.d/osm-update
 chmod 440 /etc/sudoers.d/osm-update
-
 
 log_info "Скачивание и импорт данных OSM (это займет 15-30 минут)..."
 
@@ -146,8 +181,8 @@ if [ "${TABLE_EXISTS}" != "t" ]; then
         "${OSM_FILE}"
 
     log_info "Создание индексов и функций..."
-    sudo -u "${DB_RENDER}" psql -d "${DB_NAME}" -f "${CARTO_DIR}/indexes.sql" > /dev/null 2>&1
-    sudo -u "${DB_RENDER}" psql -d "${DB_NAME}" -f "${CARTO_DIR}/functions.sql" > /dev/null 2>&1
+    [ -f "${CARTO_DIR}/indexes.sql" ] && sudo -u "${DB_RENDER}" psql -d "${DB_NAME}" -f "${CARTO_DIR}/indexes.sql" > /dev/null 2>&1 || log_warn "indexes.sql не найден, пропускаем."
+    [ -f "${CARTO_DIR}/functions.sql" ] && sudo -u "${DB_RENDER}" psql -d "${DB_NAME}" -f "${CARTO_DIR}/functions.sql" > /dev/null 2>&1 || log_warn "functions.sql не найден, пропускаем."
 
     log_info "Загрузка внешних данных (береговые линии, ледники)..."
     cd "${CARTO_DIR}"
@@ -158,15 +193,104 @@ else
     log_warn "Таблицы OSM уже существуют, пропускаем импорт (данные в безопасности)."
 fi
 
+log_info "Создание таблиц утилиты..."
+
+sudo -u postgres psql -d "${DB_NAME}" << 'EOSQL'
+-- Таблица пользователей
+CREATE TABLE IF NOT EXISTS "Users" (
+    "Id" SERIAL PRIMARY KEY,
+    "Username" TEXT NOT NULL UNIQUE,
+    "PasswordHash" TEXT NOT NULL,
+    "CreatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Таблица регионов
+CREATE TABLE IF NOT EXISTS "MapRegions" (
+    "Id" SERIAL PRIMARY KEY,
+    "Name" TEXT NOT NULL,
+    "Code" TEXT NOT NULL UNIQUE,
+    "GeofabrikUrl" TEXT NOT NULL,
+    "StateUrl" TEXT,
+    "IsActive" BOOLEAN NOT NULL DEFAULT TRUE,
+    "LastUpdateTimestamp" TIMESTAMP,
+    "CreatedAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "UpdatedAt" TIMESTAMP,
+    "AutoUpdate" BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+-- Журнал обновлений
+CREATE TABLE IF NOT EXISTS "UpdateLogs" (
+    "Id" SERIAL PRIMARY KEY,
+    "RegionId" INTEGER NOT NULL REFERENCES "MapRegions"("Id") ON DELETE CASCADE,
+    "UpdateType" TEXT NOT NULL,
+    "Status" TEXT NOT NULL,
+    "StartedAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "FinishedAt" TIMESTAMP,
+    "DurationSeconds" INTEGER,
+    "LogOutput" TEXT,
+    "ErrorMessage" TEXT,
+    "PbfFilePath" TEXT,
+    "OscFilePath" TEXT,
+    "RecordsProcessed" INTEGER,
+    "FromTimestamp" TIMESTAMP,
+    "ToTimestamp" TIMESTAMP
+);
+
+-- Настройки системы
+CREATE TABLE IF NOT EXISTS "update_settings" (
+    "key" TEXT PRIMARY KEY,
+    "value" TEXT,
+    "description" TEXT,
+    "updated_at" TIMESTAMP DEFAULT NOW()
+);
+
+-- Дефолтные настройки
+INSERT INTO "update_settings" ("key", "value", "description") VALUES
+    ('UpdateMode', 'Confirm', 'Режим обновления: Confirm или Auto'),
+    ('ScheduleType', 'Daily', 'Периодичность: Daily, Every3Days, Weekly'),
+    ('ScheduleHour', '3', 'Час запуска (0-23)'),
+    ('CartoDir', '/opt/osm-update/openstreetmap-carto', 'Директория стилей'),
+    ('TileDir', '/var/lib/mod_tile', 'Директория тайлов')
+ON CONFLICT ("key") DO NOTHING;
+
+-- Регион Дальнего Востока по умолчанию
+INSERT INTO "MapRegions" ("Name", "Code", "GeofabrikUrl", "StateUrl", "IsActive", "AutoUpdate")
+VALUES (
+    'Дальневосточный ФО',
+    'far-eastern-fed-district',
+    'https://download.geofabrik.de/russia/far-eastern-fed-district-latest.osm.pbf',
+    'https://download.geofabrik.de/russia/far-eastern-fed-district-updates/state.txt',
+    TRUE,
+    FALSE
+)
+ON CONFLICT ("Code") DO NOTHING;
+
+-- Индексы
+CREATE INDEX IF NOT EXISTS "IX_UpdateLogs_RegionId" ON "UpdateLogs" ("RegionId");
+CREATE INDEX IF NOT EXISTS "IX_UpdateLogs_Status" ON "UpdateLogs" ("Status");
+CREATE INDEX IF NOT EXISTS "IX_UpdateLogs_StartedAt" ON "UpdateLogs" ("StartedAt" DESC);
+CREATE INDEX IF NOT EXISTS "IX_MapRegions_Code" ON "MapRegions" ("Code");
+CREATE INDEX IF NOT EXISTS "IX_Users_Username" ON "Users" ("Username");
+
+-- Выдаем права osm_app на новые таблицы
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO osm_app;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO osm_app;
+EOSQL
+
+log_info "Таблицы утилиты созданы, регион Дальнего Востока добавлен."
+
 log_info "Перезапуск сервисов..."
 systemctl enable renderd apache2 > /dev/null 2>&1
 systemctl restart renderd apache2
 
 touch /opt/osm-update/.server_initialized
 
+log_info "Установка завершена успешно"
 
-log_info "Установка завершена успешно!"
-
+echo ""
+echo "Интерактивная карта: http://${SERVER_IP}/"
+echo "Прямой доступ к тайлу: http://${SERVER_IP}/osm_tiles/0/0/0.png"
+echo ""
 echo "Данные для веб-утилиты:"
 echo "  Хост: localhost"
 echo "  Порт: 5432"
@@ -175,3 +299,9 @@ echo "  Пользователь: ${DB_APP}"
 echo "  Пароль: ${DB_APP_PASS}"
 echo "  Carto Dir: ${CARTO_DIR}"
 echo "  Tile Dir: ${TILE_DIR}"
+echo ""
+echo "Полезные команды:"
+echo "  sudo journalctl -u renderd -f          # Логи renderd"
+echo "  sudo systemctl restart renderd          # Перезапуск renderd"
+echo "  sudo systemctl status renderd apache2   # Статус сервисов"
+echo ""
