@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
-# OpenStreetMap Tile Server Installer
-# Ubuntu Server 24.04/26.04 LTS (ARM64 и x86_64)
+# OpenStreetMap Tile Server Installer 
+# Ubuntu Server 24.04/26.04 LTS 
 # =============================================================================
 set -e
 
@@ -41,7 +41,6 @@ apt-get install -y -qq postgresql postgresql-contrib postgis osm2pgsql gdal-bin 
 log_info "Настройка PostgreSQL..."
 sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = '${DB_RENDER}'" | grep -q 1 || sudo -u postgres createuser "${DB_RENDER}"
 sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = '${DB_APP}'" | grep -q 1 || sudo -u postgres createuser "${DB_APP}"
-
 sudo -u postgres psql -c "ALTER USER ${DB_APP} WITH PASSWORD '${DB_APP_PASS}';"
 
 if ! sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw "${DB_NAME}"; then
@@ -51,12 +50,15 @@ if ! sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw "${DB_NAME}"; then
     sudo -u postgres psql -d "${DB_NAME}" -c "ALTER TABLE geometry_columns OWNER TO ${DB_RENDER};"
     sudo -u postgres psql -d "${DB_NAME}" -c "ALTER TABLE spatial_ref_sys OWNER TO ${DB_RENDER};"
     sudo -u postgres psql -d "${DB_NAME}" -c "ALTER TABLE geography_columns OWNER TO ${DB_RENDER};"
-    sudo -u postgres psql -d "${DB_NAME}" -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_APP};"
-    sudo -u postgres psql -d "${DB_NAME}" -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_APP};"
     log_info "База данных '${DB_NAME}' создана."
 else
-    log_warn "База данных '${DB_NAME}' уже существует, пропускаем создание (ваши данные в безопасности)."
+    log_warn "База данных '${DB_NAME}' уже существует, пропускаем создание."
 fi
+
+sudo -u postgres psql -d "${DB_NAME}" -c "GRANT CREATE ON SCHEMA public TO ${DB_APP};"
+sudo -u postgres psql -d "${DB_NAME}" -c "GRANT USAGE ON SCHEMA public TO ${DB_APP};"
+sudo -u postgres psql -d "${DB_NAME}" -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_APP};"
+sudo -u postgres psql -d "${DB_NAME}" -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_APP};"
 
 log_info "Подготовка директорий и стилей..."
 mkdir -p "${OPT_DIR}" "${DATA_DIR}" "${TILE_DIR}"
@@ -71,6 +73,9 @@ if [ ! -d "${CARTO_DIR}/.git" ]; then
 else
     log_warn "Стили уже загружены, пропускаем."
 fi
+
+chown -R "${DB_RENDER}:${DB_RENDER}" "${CARTO_DIR}"
+chmod -R 775 "${CARTO_DIR}"
 
 log_info "Настройка renderd..."
 cat > /etc/renderd.conf << EOF
@@ -109,6 +114,49 @@ cat > /etc/apache2/sites-available/osm-tiles.conf << EOF
 </VirtualHost>
 EOF
 a2ensite osm-tiles > /dev/null 2>&1 || true
+a2dissite 000-default > /dev/null 2>&1 || true
+
+log_info "Настройка passwordless sudo..."
+echo "${APP_USER} ALL=(${DB_RENDER}) NOPASSWD: /usr/bin/osm2pgsql" > /etc/sudoers.d/osm-update
+chmod 440 /etc/sudoers.d/osm-update
+
+
+log_info "Скачивание и импорт данных OSM (это займет 15-30 минут)..."
+
+OSM_URL="https://download.geofabrik.de/russia/far-eastern-fed-district-latest.osm.pbf"
+OSM_FILE="${DATA_DIR}/far-eastern-fed-district-latest.osm.pbf"
+
+if [ ! -f "${OSM_FILE}" ]; then
+    log_info "Скачивание ${OSM_URL}..."
+    wget -q --show-progress -O "${OSM_FILE}" "${OSM_URL}"
+else
+    log_warn "Файл данных уже существует, пропускаем скачивание."
+fi
+
+TABLE_EXISTS=$(sudo -u postgres psql -d "${DB_NAME}" -tAc \
+    "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='planet_osm_point');")
+
+if [ "${TABLE_EXISTS}" != "t" ]; then
+    log_info "Импорт данных в базу данных..."
+    sudo -u "${DB_RENDER}" osm2pgsql \
+        -d "${DB_NAME}" \
+        --create --slim -G --hstore \
+        -S "${CARTO_DIR}/openstreetmap-carto.style" \
+        -C 2500 --number-processes "$(nproc)" \
+        "${OSM_FILE}"
+
+    log_info "Создание индексов и функций..."
+    sudo -u "${DB_RENDER}" psql -d "${DB_NAME}" -f "${CARTO_DIR}/indexes.sql" > /dev/null 2>&1
+    sudo -u "${DB_RENDER}" psql -d "${DB_NAME}" -f "${CARTO_DIR}/functions.sql" > /dev/null 2>&1
+
+    log_info "Загрузка внешних данных (береговые линии, ледники)..."
+    cd "${CARTO_DIR}"
+    sudo -u "${DB_RENDER}" python3 scripts/get-external-data.py
+
+    log_info "Импорт данных завершен."
+else
+    log_warn "Таблицы OSM уже существуют, пропускаем импорт (данные в безопасности)."
+fi
 
 log_info "Перезапуск сервисов..."
 systemctl enable renderd apache2 > /dev/null 2>&1
@@ -116,7 +164,8 @@ systemctl restart renderd apache2
 
 touch /opt/osm-update/.server_initialized
 
-log_info "Установка завершена успешно"
+
+log_info "Установка завершена успешно!"
 
 echo "Данные для веб-утилиты:"
 echo "  Хост: localhost"

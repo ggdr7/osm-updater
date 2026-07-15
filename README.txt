@@ -100,14 +100,18 @@ OSM UPDATE UTILITY
     sudo -u postgres psql -d gis -c "CREATE EXTENSION IF NOT EXISTS postgis;"
     sudo -u postgres psql -d gis -c "CREATE EXTENSION IF NOT EXISTS hstore;"
 
-Назначаем права:
+Назначаем права на системные таблицы:
 
     sudo -u postgres psql -d gis -c "ALTER TABLE geometry_columns OWNER TO _renderd;"
     sudo -u postgres psql -d gis -c "ALTER TABLE spatial_ref_sys OWNER TO _renderd;"
     sudo -u postgres psql -d gis -c "ALTER TABLE geography_columns OWNER TO _renderd;"
+
+КРИТИЧНО: Права для osm_app (PostgreSQL 15+):
+
+    sudo -u postgres psql -d gis -c "GRANT CREATE ON SCHEMA public TO osm_app;"
+    sudo -u postgres psql -d gis -c "GRANT USAGE ON SCHEMA public TO osm_app;"
     sudo -u postgres psql -d gis -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO osm_app;"
     sudo -u postgres psql -d gis -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO osm_app;"
-
 
 ШАГ 3: ЗАГРУЗКА СТИЛЕЙ
 -----------------------
@@ -122,6 +126,10 @@ OSM UPDATE UTILITY
 
     carto project.mml > style.xml 2>/dev/null || true
 
+Права на запись для _renderd:
+
+    sudo chown -R _renderd:_renderd /opt/osm-update/openstreetmap-carto/
+    sudo chmod -R 775 /opt/osm-update/openstreetmap-carto/
 
 ШАГ 4: НАСТРОЙКА RENDERD
 -------------------------
@@ -176,17 +184,31 @@ OSM UPDATE UTILITY
     sudo systemctl restart apache2 renderd
 
 
-ШАГ 6: ИМПОРТ ДАННЫХ OSM =
+ШАГ 6: ИМПОРТ ДАННЫХ OSM
 ---------------------------------------
+Настройка passwordless sudo для утилиты:
+
+    echo 'ВАШ_ПОЛЬЗОВАТЕЛЬ ALL=(_renderd) NOPASSWD: /usr/bin/osm2pgsql' | sudo tee /etc/sudoers.d/osm-update
+    sudo chmod 440 /etc/sudoers.d/osm-update
+
+Скачивание данных:
+
     mkdir -p /opt/osm-update/data
     wget -O /opt/osm-update/data/region.osm.pbf "https://download.geofabrik.de/russia/far-eastern-fed-district-latest.osm.pbf"
 
-    sudo -u _renderd osm2pgsql -d gis --create --slim -G --hstore --tag-transform-script /opt/osm-update/openstreetmap-carto/openstreetmap-carto.lua -C 2500 --number-processes $(nproc) -S /opt/osm-update/openstreetmap-carto/openstreetmap-carto.style /opt/osm-update/data/region.osm.pbf
+Импорт (используется .style файл, НЕ используйте --tag-transform-script):
+
+    sudo -u _renderd osm2pgsql \
+      -d gis --create --slim -G --hstore \
+      -S /opt/osm-update/openstreetmap-carto/openstreetmap-carto.style \
+      -C 2500 --number-processes $(nproc) \
+      /opt/osm-update/data/region.osm.pbf
+
+Индексы, функции и внешние данные:
 
     sudo -u _renderd psql -d gis -f /opt/osm-update/openstreetmap-carto/indexes.sql
     sudo -u _renderd psql -d gis -f /opt/osm-update/openstreetmap-carto/functions.sql
     cd /opt/osm-update/openstreetmap-carto && sudo -u _renderd python3 scripts/get-external-data.py
-
 
 ШАГ 7: УСТАНОВКА УТИЛИТЫ
 -------------------------
@@ -270,4 +292,43 @@ OSM UPDATE UTILITY
 
   - Статус сервисов:
       sudo systemctl status osm-update renderd apache2
+
+
+РЕШЕНИЕ ВОЗМОЖНЫХ ПРОБЛЕМ
+=========================
+
+Ошибка: permission denied for schema public
+Возникает в PostgreSQL 15+ если у пользователя нет прав на создание таблиц.
+Сначала попробуйте:
+sudo -u postgres psql -d gis -c "GRANT CREATE ON SCHEMA public TO osm_app;"
+Если не помогло, убедитесь, что владелец схемы — _renderd:
+sudo -u postgres psql -d gis -c "ALTER SCHEMA public OWNER TO _renderd;"
+
+Ошибка: sudo: A terminal is required to authenticate
+Утилита не может запустить osm2pgsql через sudo без пароля.
+Создайте файл /etc/sudoers.d/osm-update с содержимым:
+ВАШ_ПОЛЬЗОВАТЕЛЬ ALL=(_renderd) NOPASSWD: /usr/bin/osm2pgsql
+Затем: sudo chmod 440 /etc/sudoers.d/osm-update
+
+Ошибка: File does not exist: openstreetmap-carto-flex.lua
+Ваша версия openstreetmap-carto использует старый .style формат.
+Убедитесь, что в утилите используется путь:
+/opt/osm-update/openstreetmap-carto/openstreetmap-carto.style
+НЕ используйте флаг --tag-transform-script вместе с .style файлом.
+
+Карта не отображается (404 на тайлы)
+1. Проверьте наличие данных: PGPASSWORD='...' psql -h localhost -U osm_app -d gis -c "SELECT COUNT(*) FROM planet_osm_point;"
+2. Если 0 — выполните импорт вручную (см. Ручная установка, Шаг 6)
+3. Перезапустите renderd: sudo systemctl restart renderd
+4. Первый запрос к тайлу может вернуть 404 — подождите 10-15 секунд и повторите
+
+PermissionError при get-external-data.py
+У пользователя _renderd нет прав на запись в папку стилей.
+sudo chown -R _renderd:_renderd /opt/osm-update/openstreetmap-carto/
+sudo chmod -R 775 /opt/osm-update/openstreetmap-carto/
+
+Порт 5000 не открывается из локальной сети
+Утилита по умолчанию может слушать только localhost. Добавьте в /opt/osm-update/appsettings.json секцию Kestrel с "Url": "http://0.0.0.0:5000" и перезапустите сервис.
+
+
 
