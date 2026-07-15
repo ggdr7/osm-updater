@@ -214,7 +214,7 @@ CREATE TABLE IF NOT EXISTS "MapRegions" (
     "IsActive" BOOLEAN NOT NULL DEFAULT TRUE,
     "LastUpdateTimestamp" TIMESTAMP,
     "CreatedAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-    "UpdatedAt" TIMESTAMP,
+    "UpdatedAt" TIMESTAMP DEFAULT NOW(),
     "AutoUpdate" BOOLEAN NOT NULL DEFAULT FALSE
 );
 
@@ -276,6 +276,16 @@ CREATE INDEX IF NOT EXISTS "IX_Users_Username" ON "Users" ("Username");
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO osm_app;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO osm_app;
 EOSQL
+
+sudo -u postgres psql -d "${DB_NAME}" -c "
+    ALTER TABLE \"Users\" OWNER TO ${DB_APP};
+    ALTER TABLE \"MapRegions\" OWNER TO ${DB_APP};
+    ALTER TABLE \"UpdateLogs\" OWNER TO ${DB_APP};
+    ALTER TABLE \"update_settings\" OWNER TO ${DB_APP};
+    ALTER SEQUENCE \"Users_Id_seq\" OWNER TO ${DB_APP};
+    ALTER SEQUENCE \"MapRegions_Id_seq\" OWNER TO ${DB_APP};
+    ALTER SEQUENCE \"UpdateLogs_Id_seq\" OWNER TO ${DB_APP};
+"
 
 log_info "Таблицы утилиты созданы, регион Дальнего Востока добавлен."
 
