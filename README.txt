@@ -1,129 +1,83 @@
 OSM UPDATE UTILITY
 
-АВТОМАТИЧЕСКАЯ УСТАНОВКА
-==================================
 
-Вы можете запустить автоматическую настройку OSM сервера, лучше всего это делать на чистом сервере под Ubuntu 26.04.
+АВТОМАТИЧЕСКАЯ УСТАНОВКА (Рекомендуется)
+================================================================================
+Скрипт выполняет полную настройку сервера: устанавливает зависимости,
+настраивает БД, скачивает и импортирует данные OSM (Дальневосточный ФО), создаёт 
+таблицы утилиты, настраивает веб-сервер и готовит файл systemd-сервиса.
 
-ШАГ 1: ПОДГОТОВКА СЕРВЕРА
---------------------------
-Подключитесь к серверу по SSH и выполните одну команду:
+
+ШАГ 1: ЗАПУСК СКРИПТА УСТАНОВКИ
+--------------------------------
+Подключитесь к чистому серверу (тестирование проводилось на Ubuntu 26.04) и выполните:
 
     wget -qO- https://raw.githubusercontent.com/ggdr7/osm-updater/main/install-server.sh | sudo bash
 
-Скрипт установит все необходимые компоненты (PostgreSQL, osm2pgsql, renderd, Apache) и создаст базу данных.
+После завершения скрипт выведет данные для подключения веб-утилиты.
 
-Скрипт безопасен для повторного запуска — он не удалит существующие данные.
-
-После выполнения скрипт выведет данные для подключения
-
-ШАГ 2: УСТАНОВКА УТИЛИТЫ
--------------------------
-Скачайте релиз:
+ШАГ 2: УСТАНОВКА ВЕБ-УТИЛИТЫ
+-----------------------------
+Скрипт уже создал и настроил файл сервиса osm-update.service. Вам нужно 
+только скачать и запустить саму утилиту:
 
     wget https://github.com/ggdr7/osm-updater/releases/latest/download/osm-updater-linux-x64.tar.gz
-
-Распакуйте:
-
-    tar -xzf osm-updater-linux-x64.tar.gz -C /opt/osm-update/
-
-Настройте права:
-
-    chmod +x /opt/osm-update/OsmUpdateUtility
-
-Создайте сервис systemd:
-
-    sudo nano /etc/systemd/system/osm-update.service
-
-Вставьте следующее содержимое (замените ВАШ_ПОЛЬЗОВАТЕЛЬ на имя вашего пользователя):
-
-    [Unit]
-    Description=OSM Update Utility
-    After=network.target
-
-    [Service]
-    Type=simple
-    User=ВАШ_ПОЛЬЗОВАТЕЛЬ
-    WorkingDirectory=/opt/osm-update
-    ExecStart=/opt/osm-update/OsmUpdateUtility
-    Restart=always
-    RestartSec=10
-
-    [Install]
-    WantedBy=multi-user.target
-
-Сохраните файл и выполните:
-
-    sudo systemctl daemon-reload
-    sudo systemctl enable osm-update
+    sudo tar -xzf osm-updater-linux-x64.tar.gz -C /opt/osm-update/
+    sudo chmod +x /opt/osm-update/OsmUpdateUtility
     sudo systemctl start osm-update
-
 
 ШАГ 3: ПЕРВОНАЧАЛЬНАЯ НАСТРОЙКА
 --------------------------------
-Откройте браузер и перейдите по адресу:
-
-    http://ВАШ_IP:5000/Setup
-
-Форма будет предзаполнена данными из скрипта, при необходимости их можно изменить.
-
-Создайте администратора на странице входа.
+1. Откройте браузер и перейдите по адресу: http://ВАШ_IP:5000/Setup
+2. Форма будет предзаполнена данными из скрипта. Нажмите "Сохранить".
+3. Создайте первого пользователя (администратора) на странице входа.
 
 
 РУЧНАЯ УСТАНОВКА
-================
-
+================================================================================
+Если вы предпочитаете контролировать каждый шаг или используете нестандартную
+конфигурацию.
 
 ШАГ 1: УСТАНОВКА СИСТЕМНЫХ ЗАВИСИМОСТЕЙ
 ----------------------------------------
     sudo apt-get update
-    sudo apt-get install -y postgresql postgresql-contrib postgis osm2pgsql gdal-bin libapache2-mod-tile renderd apache2 mapnik-utils libmapnik-dev fonts-noto-cjk fonts-noto-hinted fonts-unifont git curl wget unzip python3-psycopg2 python3-yaml npm node-carto lua5.1
-
+    sudo apt-get install -y postgresql postgresql-contrib postgis osm2pgsql gdal-bin \
+        libapache2-mod-tile renderd apache2 mapnik-utils libmapnik-dev \
+        fonts-noto-cjk fonts-noto-hinted fonts-unifont git curl wget unzip \
+        python3-psycopg2 python3-yaml npm node-carto lua5.1
 
 ШАГ 2: НАСТРОЙКА POSTGRESQL
 ----------------------------
-Создаем пользователя для рендеринга:
+Создаем пользователей:
 
     sudo -u postgres createuser _renderd
-
-Создаем пользователя для веб-утилиты:
-
     sudo -u postgres createuser osm_app
-    sudo -u postgres psql -c "ALTER USER osm_app WITH PASSWORD 'ВАШ_ПАРОЛЬ';"
+    sudo -u postgres psql -c "ALTER USER osm_app WITH PASSWORD 'SecureOsmAppPass2026!';"
 
-Создаем базу данных:
+Создаем базу данных (владелец _renderd для osm2pgsql):
 
     sudo -u postgres createdb -E UTF8 -O _renderd gis
-
-Устанавливаем расширения:
-
     sudo -u postgres psql -d gis -c "CREATE EXTENSION IF NOT EXISTS postgis;"
     sudo -u postgres psql -d gis -c "CREATE EXTENSION IF NOT EXISTS hstore;"
-
-Назначаем права на системные таблицы:
-
     sudo -u postgres psql -d gis -c "ALTER TABLE geometry_columns OWNER TO _renderd;"
     sudo -u postgres psql -d gis -c "ALTER TABLE spatial_ref_sys OWNER TO _renderd;"
     sudo -u postgres psql -d gis -c "ALTER TABLE geography_columns OWNER TO _renderd;"
 
-КРИТИЧНО: Права для osm_app (PostgreSQL 15+):
+КРИТИЧНО для PostgreSQL 15+: Права для osm_app:
 
     sudo -u postgres psql -d gis -c "GRANT CREATE ON SCHEMA public TO osm_app;"
     sudo -u postgres psql -d gis -c "GRANT USAGE ON SCHEMA public TO osm_app;"
     sudo -u postgres psql -d gis -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO osm_app;"
     sudo -u postgres psql -d gis -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO osm_app;"
 
-ШАГ 3: ЗАГРУЗКА СТИЛЕЙ
------------------------
+ШАГ 3: ЗАГРУЗКА И КОМПИЛЯЦИЯ СТИЛЕЙ
+------------------------------------
     sudo mkdir -p /opt/osm-update
     sudo chown $USER:$USER /opt/osm-update
 
     git clone https://github.com/gravitystorm/openstreetmap-carto.git /opt/osm-update/openstreetmap-carto
     cd /opt/osm-update/openstreetmap-carto
     git switch --detach v5.9.0
-
-Компиляция стилей:
-
     carto project.mml > style.xml 2>/dev/null || true
 
 Права на запись для _renderd:
@@ -135,7 +89,6 @@ OSM UPDATE UTILITY
 -------------------------
     sudo mkdir -p /var/lib/mod_tile
     sudo chown _renderd:_renderd /var/lib/mod_tile
-
     sudo nano /etc/renderd.conf
 
 Вставьте:
@@ -159,10 +112,10 @@ OSM UPDATE UTILITY
     TILESIZE=256
     MAXZOOM=20
 
-
 ШАГ 5: НАСТРОЙКА APACHE
 ------------------------
     sudo a2enmod tile headers
+    sudo a2dissite 000-default.conf
     sudo nano /etc/apache2/sites-available/osm-tiles.conf
 
 Вставьте:
@@ -178,25 +131,33 @@ OSM UPDATE UTILITY
         </Directory>
     </VirtualHost>
 
-Активируйте сайт:
+Активация и создание тестовой страницы:
 
-    sudo a2ensite osm-tiles
+    sudo a2ensite osm-tiles.conf
     sudo systemctl restart apache2 renderd
 
+    sudo tee /var/www/html/index.html > /dev/null << 'EOF'
+    <!DOCTYPE html><html><head><meta charset="UTF-8"><title>OSM Tile Server</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <style>body{margin:0;padding:0} #map{width:100%;height:100vh}</style></head>
+    <body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>var map=L.map('map').setView([50,130],5);
+    L.tileLayer('/osm_tiles/{z}/{x}/{y}.png',{attribution:'&copy; OSM',maxZoom:20}).addTo(map);</script></body></html>
+    EOF
 
 ШАГ 6: ИМПОРТ ДАННЫХ OSM
----------------------------------------
-Настройка passwordless sudo для утилиты:
+-------------------------
+1. Настройка passwordless sudo для утилиты (замените ВАШ_ПОЛЬЗОВАТЕЛЬ):
 
     echo 'ВАШ_ПОЛЬЗОВАТЕЛЬ ALL=(_renderd) NOPASSWD: /usr/bin/osm2pgsql' | sudo tee /etc/sudoers.d/osm-update
     sudo chmod 440 /etc/sudoers.d/osm-update
 
-Скачивание данных:
+2. Скачивание данных:
 
     mkdir -p /opt/osm-update/data
     wget -O /opt/osm-update/data/region.osm.pbf "https://download.geofabrik.de/russia/far-eastern-fed-district-latest.osm.pbf"
 
-Импорт (используется .style файл, НЕ используйте --tag-transform-script):
+3. Импорт (Используется .style файл, НЕ используйте --tag-transform-script!):
 
     sudo -u _renderd osm2pgsql \
       -d gis --create --slim -G --hstore \
@@ -204,7 +165,7 @@ OSM UPDATE UTILITY
       -C 2500 --number-processes $(nproc) \
       /opt/osm-update/data/region.osm.pbf
 
-Индексы, функции и внешние данные:
+4. Индексы, функции и внешние данные:
 
     sudo -u _renderd psql -d gis -f /opt/osm-update/openstreetmap-carto/indexes.sql
     sudo -u _renderd psql -d gis -f /opt/osm-update/openstreetmap-carto/functions.sql
@@ -212,17 +173,15 @@ OSM UPDATE UTILITY
 
 ШАГ 7: УСТАНОВКА УТИЛИТЫ
 -------------------------
-Скачайте и распакуйте релиз:
-
     wget https://github.com/ggdr7/osm-updater/releases/latest/download/osm-updater-linux-x64.tar.gz
-    tar -xzf osm-updater-linux-x64.tar.gz -C /opt/osm-update/
-    chmod +x /opt/osm-update/OsmUpdateUtility
+    sudo tar -xzf osm-updater-linux-x64.tar.gz -C /opt/osm-update/
+    sudo chmod +x /opt/osm-update/OsmUpdateUtility
 
-Создайте сервис systemd:
+Создание сервиса (замените ВАШ_ПОЛЬЗОВАТЕЛЬ):
 
     sudo nano /etc/systemd/system/osm-update.service
 
-Вставьте следующее содержимое (замените ВАШ_ПОЛЬЗОВАТЕЛЬ на имя вашего пользователя):
+Вставьте:
 
     [Unit]
     Description=OSM Update Utility
@@ -233,102 +192,64 @@ OSM UPDATE UTILITY
     User=ВАШ_ПОЛЬЗОВАТЕЛЬ
     WorkingDirectory=/opt/osm-update
     ExecStart=/opt/osm-update/OsmUpdateUtility
+    Environment=ASPNETCORE_URLS=http://0.0.0.0:5000
     Restart=always
     RestartSec=10
 
     [Install]
     WantedBy=multi-user.target
 
-Сохраните файл и выполните:
+Запуск:
 
     sudo systemctl daemon-reload
     sudo systemctl enable osm-update
     sudo systemctl start osm-update
 
-ШАГ 8: ПЕРВОНАЧАЛЬНАЯ НАСТРОЙКА
---------------------------------
-Откройте браузер и перейдите по адресу:
-
-    http://ВАШ_IP:5000/Setup
-
-Форма будет предзаполнена данными, при необходимости их можно изменить.
-
-Создайте администратора на странице входа.
-
 
 ИСПОЛЬЗОВАНИЕ
-=============
+================================================================================
 После установки откройте http://ВАШ_IP:5000/ и войдите под созданным пользователем.
 
 ОСНОВНЫЕ ФУНКЦИИ:
-  - Главная страница: Статус системы, журнал обновлений, управление регионами
-  - Настройки: Режим обновления, расписание, пути, смена пароля
-  - Hangfire Dashboard: http://ВАШ_IP:5000/hangfire — мониторинг фоновых задач
-
-ДОБАВЛЕНИЕ РЕГИОНА:
-  1. Откройте главную страницу
-  2. В разделе "Добавить регион" заполните:
-     - Название (например, "Дальневосточный ФО")
-     - Код (например, far-eastern-fed-district)
-     - URL файла .osm.pbf (например, https://download.geofabrik.de/russia/far-eastern-fed-district-latest.osm.pbf)
-  3. Нажмите "Добавить"
-
-Утилита автоматически скачает файл, импортирует его в базу данных и настроит рендеринг тайлов.
+  - Главная страница: Статус системы, журнал обновлений, управление регионами.
+  - Настройки: Режим обновления, расписание, пути, смена пароля.
+  - Hangfire Dashboard: http://ВАШ_IP:5000/hangfire - мониторинг фоновых задач.
 
 
-ПОЛЕЗНЫЕ КОМАНДЫ
-================
-  - Просмотр логов утилиты:
-      sudo journalctl -u osm-update -f
-
-  - Просмотр логов renderd:
-      sudo journalctl -u renderd -f
-
-  - Перезапуск утилиты:
-      sudo systemctl restart osm-update
-
-  - Перезапуск renderd:
-      sudo systemctl restart renderd
-
-  - Статус сервисов:
-      sudo systemctl status osm-update renderd apache2
-
-
-РЕШЕНИЕ ВОЗМОЖНЫХ ПРОБЛЕМ
-=========================
+РЕШЕНИЕ ВОЗМОЖНЫХ ПРОБЛЕМ 
+================================================================================
 
 Ошибка: permission denied for schema public
-Возникает в PostgreSQL 15+ если у пользователя нет прав на создание таблиц.
-Сначала попробуйте:
-sudo -u postgres psql -d gis -c "GRANT CREATE ON SCHEMA public TO osm_app;"
-Если не помогло, убедитесь, что владелец схемы — _renderd:
-sudo -u postgres psql -d gis -c "ALTER SCHEMA public OWNER TO _renderd;"
+Возникает в PostgreSQL 15+ при создании таблиц утилитой.
+Решение: 
+    sudo -u postgres psql -d gis -c "GRANT CREATE ON SCHEMA public TO osm_app;"
 
 Ошибка: sudo: A terminal is required to authenticate
 Утилита не может запустить osm2pgsql через sudo без пароля.
-Создайте файл /etc/sudoers.d/osm-update с содержимым:
-ВАШ_ПОЛЬЗОВАТЕЛЬ ALL=(_renderd) NOPASSWD: /usr/bin/osm2pgsql
-Затем: sudo chmod 440 /etc/sudoers.d/osm-update
+Решение: 
+    echo 'ВАШ_ПОЛЬЗОВАТЕЛЬ ALL=(_renderd) NOPASSWD: /usr/bin/osm2pgsql' | sudo tee /etc/sudoers.d/osm-update
+    sudo chmod 440 /etc/sudoers.d/osm-update
 
 Ошибка: File does not exist: openstreetmap-carto-flex.lua
-Ваша версия openstreetmap-carto использует старый .style формат.
-Убедитесь, что в утилите используется путь:
-/opt/osm-update/openstreetmap-carto/openstreetmap-carto.style
+Ваша версия openstreetmap-carto использует формат .style.
+Решение: Убедитесь, что в утилите используется путь:
+    /opt/osm-update/openstreetmap-carto/openstreetmap-carto.style
 НЕ используйте флаг --tag-transform-script вместе с .style файлом.
 
 Карта не отображается (404 на тайлы)
-1. Проверьте наличие данных: PGPASSWORD='...' psql -h localhost -U osm_app -d gis -c "SELECT COUNT(*) FROM planet_osm_point;"
-2. Если 0 — выполните импорт вручную (см. Ручная установка, Шаг 6)
+1. Проверьте наличие данных: 
+   PGPASSWORD='SecureOsmAppPass2026!' psql -h localhost -U osm_app -d gis -c "SELECT COUNT(*) FROM planet_osm_point;"
+2. Если счетчик равен 0 — выполните импорт вручную (см. Ручная установка, Шаг 6).
 3. Перезапустите renderd: sudo systemctl restart renderd
-4. Первый запрос к тайлу может вернуть 404 — подождите 10-15 секунд и повторите
+4. Первый запрос к тайлу может вернуть 404 — подождите 10-15 секунд и обновите страницу.
 
 PermissionError при get-external-data.py
 У пользователя _renderd нет прав на запись в папку стилей.
-sudo chown -R _renderd:_renderd /opt/osm-update/openstreetmap-carto/
-sudo chmod -R 775 /opt/osm-update/openstreetmap-carto/
+Решение: 
+    sudo chown -R _renderd:_renderd /opt/osm-update/openstreetmap-carto/
+    sudo chmod -R 775 /opt/osm-update/openstreetmap-carto/
 
-Порт 5000 не открывается из локальной сети
-Утилита по умолчанию может слушать только localhost. Добавьте в /opt/osm-update/appsettings.json секцию Kestrel с "Url": "http://0.0.0.0:5000" и перезапустите сервис.
-
-
-
+Ошибка: column "UpdatedAt" does not exist
+Проблема рассинхронизации регистров PostgreSQL и EF Core в старых версиях.
+Решение: Обновите утилиту до версии v1.0.2+. Для существующих баз выполните:
+    sudo -u postgres psql -d gis -c "ALTER TABLE \"MapRegions\" RENAME COLUMN \"updatedat\" TO \"UpdatedAt\";"

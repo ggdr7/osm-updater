@@ -295,6 +295,30 @@ systemctl restart renderd apache2
 
 touch /opt/osm-update/.server_initialized
 
+log_info "Создание сервиса systemd для веб-утилиты..."
+
+cat > /etc/systemd/system/osm-update.service << EOF
+[Unit]
+Description=OSM Update Utility
+After=network.target
+
+[Service]
+Type=simple
+User=${APP_USER}
+WorkingDirectory=/opt/osm-update
+ExecStart=/opt/osm-update/OsmUpdateUtility
+Environment=ASPNETCORE_URLS=http://0.0.0.0:5000
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable osm-update > /dev/null 2>&1
+log_info "Сервис osm-update создан и включен. После распаковки утилиты просто выполните: sudo systemctl start osm-update"
+
 log_info "Установка завершена успешно"
 
 echo ""
