@@ -30,13 +30,11 @@ else log_error "Неподдерживаемая архитектура: $ARCH";
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 
-log_info "==============================================================================="
 log_info "Установка OSM тайл-сервера"
 log_info "Пользователь: ${APP_USER}"
 log_info "IP-адрес: ${SERVER_IP}"
 log_info "Архитектура: ${ARCH}"
 log_info "Версия стилей: ${CARTO_VERSION}"
-log_info "==============================================================================="
 
 log_info "Установка системных зависимостей..."
 export DEBIAN_FRONTEND=noninteractive
