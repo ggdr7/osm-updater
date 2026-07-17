@@ -1,0 +1,102 @@
+﻿@page
+@model OsmUpdateUtility.Pages.SettingsModel
+@{
+    ViewData["Title"] = "Настройки";
+    ViewData["ActivePage"] = "Settings";
+    Layout = "_Layout";
+}
+
+<h2>Настройки утилиты</h2>
+
+@if (!string.IsNullOrEmpty(Model.Message))
+{
+    <div class="alert alert-success">@Model.Message</div>
+}
+
+<form method="post">
+    <h3>Режим обновления</h3>
+    <div class="form-group">
+        <select asp-for="UpdateMode" class="form-control" style="max-width: 400px;">
+            <option value="Confirm">Требовать подтверждение администратора</option>
+            <option value="Auto">Автоматическая установка</option>
+        </select>
+        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">
+            В режиме подтверждения утилита сообщит о наличии обновления на главной странице и запросит разрешение.
+        </div>
+    </div>
+
+    <h3 style="margin-top: 25px;">Расписание автоматических проверок</h3>
+    <div class="row">
+        <div class="col-md-6">
+            <div class="form-group">
+                <label>Периодичность</label>
+                <select asp-for="ScheduleType" class="form-control">
+                    <option value="Daily">Каждый день</option>
+                    <option value="Every3Days">Раз в 3 дня</option>
+                    <option value="Weekly">Каждое воскресенье</option>
+                </select>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="form-group">
+                <label>Час запуска (0-23)</label>
+                <input type="number" asp-for="ScheduleHour" min="0" max="23" class="form-control" />
+                <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">
+                    Время по местному часовому поясу сервера (UTC+10).
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary mt-3">Сохранить настройки</button>
+</form>
+
+<h3 style="margin-top: 40px; border-top: 1px solid #e5e7eb; padding-top: 20px;">Безопасность</h3>
+
+@if (!string.IsNullOrEmpty(Model.PasswordMessage))
+{
+    <div class="alert alert-info">@Model.PasswordMessage</div>
+}
+
+<form method="post" asp-page-handler="ChangePassword">
+    <div class="row" style="max-width: 500px;">
+        <div class="col-12 mb-3">
+            <label>Текущий пароль</label>
+            <input type="password" asp-for="CurrentPassword" class="form-control" required />
+        </div>
+        <div class="col-12 mb-3">
+            <label>Новый пароль</label>
+            <input type="password" asp-for="NewPassword" class="form-control" required minlength="6" />
+        </div>
+        <div class="col-12 mb-3">
+            <label>Подтверждение нового пароля</label>
+            <input type="password" asp-for="ConfirmPassword" class="form-control" required minlength="6" />
+        </div>
+    </div>
+    <button type="submit" class="btn btn-warning">Сменить пароль</button>
+</form>
+
+<h3 style="margin-top: 40px; border-top: 1px solid #e5e7eb; padding-top: 20px;">Управление пользователями</h3>
+
+@if (!string.IsNullOrEmpty(Model.CreateUserMessage))
+{
+    <div class="alert alert-success">@Model.CreateUserMessage</div>
+}
+
+<form method="post" asp-page-handler="CreateUser">
+    <div class="row" style="max-width: 500px;">
+        <div class="col-12 mb-3">
+            <label>Имя нового пользователя</label>
+            <input type="text" asp-for="NewUsername" class="form-control" required minlength="3" />
+        </div>
+        <div class="col-12 mb-3">
+            <label>Пароль</label>
+            <input type="password" asp-for="NewUserPassword" class="form-control" required minlength="6" />
+        </div>
+        <div class="col-12 mb-3">
+            <label>Подтверждение пароля</label>
+            <input type="password" asp-for="NewUserConfirmPassword" class="form-control" required minlength="6" />
+        </div>
+    </div>
+    <button type="submit" class="btn btn-success">Создать пользователя</button>
+</form>

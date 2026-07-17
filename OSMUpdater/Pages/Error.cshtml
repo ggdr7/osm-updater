@@ -1,0 +1,12 @@
+﻿@page
+@model OsmUpdateUtility.Pages.ErrorModel
+@{
+    ViewData["Title"] = "Ошибка";
+    Layout = "_Layout";
+}
+
+<div class="alert alert-danger">
+    <h2>Произошла ошибка</h2>
+    <p>@Model.ErrorMessage</p>
+    <a href="/" class="btn btn-primary">На главную</a>
+</div>

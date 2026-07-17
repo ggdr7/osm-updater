@@ -1,0 +1,157 @@
+﻿@page
+@model OsmUpdateUtility.Pages.LogsModel
+@{
+    ViewData["Title"] = "История обновлений";
+}
+
+<div class="container mt-4">
+    <h1>История обновлений</h1>
+
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <h5>Всего обновлений</h5>
+                    <h2>@Model.TotalCount</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <h5>Успешных</h5>
+                    <h2>@Model.SuccessCount</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-danger text-white">
+                <div class="card-body">
+                    <h5>С ошибками</h5>
+                    <h2>@Model.FailedCount</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5>Последние 50 обновлений</h5>
+        </div>
+        <div class="card-body">
+            @if (Model.Logs.Count == 0)
+            {
+                <p class="text-muted">История обновлений пуста</p>
+            }
+            else
+            {
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Регион</th>
+                            <th>Тип</th>
+                            <th>Статус</th>
+                            <th>Начало</th>
+                            <th>Завершение</th>
+                            <th>Длительность</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var log in Model.Logs)
+                        {
+                            <tr>
+                                <td>@(log.Region?.Name ?? "Неизвестно")</td>
+                                <td>
+                                    @if (log.UpdateType == "full")
+                                    {
+                                        <span class="badge bg-info">Полное</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">Инкрементальное</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (log.Status == "success")
+                                    {
+                                        <span class="badge bg-success">Успешно</span>
+                                    }
+                                    else if (log.Status == "failed")
+                                    {
+                                        <span class="badge bg-danger">Ошибка</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning">В процессе</span>
+                                    }
+                                </td>
+                                <td>@log.StartedAt.ToString("dd.MM.yyyy HH:mm:ss")</td>
+                                <td>@(log.FinishedAt?.ToString("dd.MM.yyyy HH:mm:ss") ?? "-")</td>
+                                <td>
+                                    @if (log.DurationSeconds.HasValue)
+                                    {
+                                        @(log.DurationSeconds > 60
+                                            ? $"{log.DurationSeconds / 60} мин {log.DurationSeconds % 60} сек"
+                                            : $"{log.DurationSeconds} сек")
+                                    }
+                                    else
+                                    {
+                                        <span>-</span>
+                                    }
+                                </td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-outline-primary"
+                                            data-bs-toggle="modal" data-bs-target="#logModal_@log.Id">
+                                        Подробнее
+                                    </button>
+                                </td>
+                            </tr>
+
+                            <div class="modal fade" id="logModal_@log.Id" tabindex="-1">
+                                <div class="modal-dialog modal-lg">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Детали обновления #@log.Id</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <h6>Основная информация:</h6>
+                                            <ul class="list-unstyled">
+                                                <li><strong>Регион:</strong> @(log.Region?.Name ?? "Неизвестно")</li>
+                                                <li><strong>Тип:</strong> @log.UpdateType</li>
+                                                <li><strong>Статус:</strong> @log.Status</li>
+                                                <li><strong>Начало:</strong> @log.StartedAt.ToString("dd.MM.yyyy HH:mm:ss")</li>
+                                                <li><strong>Завершение:</strong> @(log.FinishedAt?.ToString("dd.MM.yyyy HH:mm:ss") ?? "-")</li>
+                                                <li><strong>Длительность:</strong> @(log.DurationSeconds?.ToString() ?? "-") сек</li>
+                                            </ul>
+
+                                            @if (!string.IsNullOrEmpty(log.ErrorMessage))
+                                            {
+                                                <h6 class="text-danger">Ошибка:</h6>
+                                                <pre class="bg-danger bg-opacity-10 p-2 rounded">@log.ErrorMessage</pre>
+                                            }
+
+                                            @if (!string.IsNullOrEmpty(log.LogOutput))
+                                            {
+                                                <h6>Лог вывода:</h6>
+                                                <pre class="bg-light p-2 rounded" style="max-height: 300px; overflow-y: auto;">@log.LogOutput</pre>
+                                            }
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+}

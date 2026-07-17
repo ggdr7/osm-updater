@@ -1,0 +1,87 @@
+﻿@page
+@model OsmUpdateUtility.Pages.SetupModel
+@{
+    Layout = null; 
+}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Первичная настройка OSM Updater</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+            body {
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }
+
+            .setup-card {
+                max-width: 600px;
+                width: 100%;
+            }
+    </style>
+</head>
+<body>
+    <div class="setup-card">
+        <div class="card shadow">
+            <div class="card-body p-4">
+                <h3 class="card-title text-center mb-4">Первичная настройка</h3>
+
+                @if (!string.IsNullOrEmpty(Model.Message))
+                {
+                    <div class="alert alert-success">@Model.Message</div>
+                }
+
+                <form method="post">
+                    <h5 class="mb-3 text-primary">Подключение к базе данных</h5>
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label class="form-label">Хост</label>
+                            <input asp-for="DbHost" class="form-control" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Порт</label>
+                            <input asp-for="DbPort" class="form-control" required />
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Имя базы данных</label>
+                        <input asp-for="DbName" class="form-control" required />
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Пользователь БД</label>
+                            <input asp-for="DbUser" class="form-control" required />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Пароль БД</label>
+                            <input asp-for="DbPassword" type="password" class="form-control" required />
+                        </div>
+                    </div>
+
+                    <h5 class="mb-3 mt-4 text-primary">Пути в файловой системе</h5>
+                    <div class="mb-3">
+                        <label class="form-label">Директория для данных и загрузок</label>
+                        <input asp-for="DataDir" class="form-control" required />
+                        <div class="form-text">Например: /opt/osm-update/data</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Директория стилей openstreetmap-carto</label>
+                        <input asp-for="CartoDir" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Директория хранения тайлов</label>
+                        <input asp-for="TileDir" class="form-control" required />
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 mt-3">Сохранить и продолжить</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

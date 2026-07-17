@@ -1,0 +1,164 @@
+﻿@page
+@model OsmUpdateUtility.Pages.IndexModel
+@{
+    ViewData["Title"] = "Главная";
+    ViewData["ActivePage"] = "Index";
+    Layout = "_Layout";
+}
+
+@if (Model.PendingUpdates.Any())
+{
+    <div class="row mb-3">
+        @foreach (var update in Model.PendingUpdates)
+        {
+            <div class="col-12 col-md-6 mb-3">
+                <div class="alert alert-warning d-flex justify-content-between align-items-start shadow-sm">
+                    <div>
+                        <strong>Доступно обновление</strong><br />
+                        Регион: <strong>@update.RegionName</strong><br />
+                        <small class="text-muted">Новая дата на Geofabrik: @update.GeofabrikDate.ToString("dd.MM.yyyy")</small>
+                    </div>
+                    <div class="d-flex flex-column gap-2 ms-3">
+                        <form method="post" asp-page-handler="ConfirmUpdate">
+                            <input type="hidden" name="regionId" value="@update.RegionId" />
+                            <button type="submit" class="btn btn-primary btn-sm w-100">▶ Установить</button>
+                        </form>
+                        <form method="post" asp-page-handler="IgnoreUpdate">
+                            <input type="hidden" name="regionId" value="@update.RegionId" />
+                            <button type="submit" class="btn btn-outline-secondary btn-sm w-100">✕ Игнорировать</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="alert alert-success mb-3">
+        Все регионы актуальны. Новых обновлений не обнаружено.
+    </div>
+}
+
+<h2>Статус системы</h2>
+<div style="margin-bottom: 20px;">
+    <p>Последнее успешное обновление: <strong>@Model.LastUpdateDate</strong></p>
+
+    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <form method="post" asp-page-handler="CheckAndUpdate" asp-page="/Index" id="updateForm" onsubmit="disableButton(this)">
+            <button type="submit" class="btn btn-primary" id="updateBtn">
+                Проверить и обновить регионы
+            </button>
+        </form>
+
+        <form method="post" asp-page-handler="CleanupDownloads" onsubmit="return confirm('Вы уверены, что хотите удалить ВСЕ файлы из папки загрузок?');">
+            <button type="submit" class="btn btn-outline-danger btn-sm">
+                Очистить папку загрузок
+            </button>
+        </form>
+
+        <span id="loadingSpinner" style="display: none; margin-left: 10px;">
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            Обработка, пожалуйста, подождите...
+        </span>
+    </div>
+
+    @if (TempData["UpdateMessage"] != null)
+    {
+        <div class="alert alert-info" style="margin-top: 10px; white-space: pre-line;">
+            @TempData["UpdateMessage"]
+        </div>
+    }
+</div>
+
+<script>
+    function disableButton(form) {
+        const btn = document.getElementById('updateBtn');
+        const spinner = document.getElementById('loadingSpinner');
+
+        btn.disabled = true;
+        btn.style.opacity = '0.6';
+        spinner.style.display = 'inline-block';
+        return true;
+    }
+</script>
+
+<h2>Регионы</h2>
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Название</th>
+            <th>Код</th>
+            <th>Последнее обновление</th>
+            <th>Действия</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var region in Model.Regions)
+        {
+            <tr>
+                <td>@region.Name</td>
+                <td>@region.Code</td>
+                <td>@(region.LastUpdateTimestamp?.ToString("dd.MM.yyyy HH:mm") ?? "Никогда")</td>
+                <td>
+                    <form method="post" asp-page-handler="DeleteRegion">
+                        <input type="hidden" name="id" value="@region.Id" />
+                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Удалить регион?');">Удалить</button>
+                    </form>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<h3>Добавить регион</h3>
+<form method="post" asp-page-handler="AddRegion">
+    <div class="row">
+        <div class="col-md-4">
+            <div class="form-group">
+                <label>Название</label>
+                <input asp-for="NewRegion.Name" class="form-control" required placeholder="Дальневосточный ФО" />
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="form-group">
+                <label>Код (уникальный)</label>
+                <input asp-for="NewRegion.Code" class="form-control" required placeholder="far-eastern-fed-district" />
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="form-group">
+                <label>URL файла .osm.pbf</label>
+                <input asp-for="NewRegion.GeofabrikUrl" class="form-control" required placeholder="https://download.geofabrik.de/..." />
+            </div>
+        </div>
+    </div>
+    <button type="submit" class="btn btn-secondary mt-3">Добавить</button>
+</form>
+
+<h2 style="margin-top: 30px;">Журнал обновлений</h2>
+<div class="log-box" style="max-height: 400px; padding: 15px; border: 1px solid #dee2e6; border-radius: 4px; overflow-y: auto;">
+    @if (!Model.Logs.Any())
+    {
+        <text>Журнал пуст.</text>
+    }
+    else
+    {
+        @foreach (var log in Model.Logs)
+        {
+            <div style="margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #eee;">
+                <strong>[@log.StartedAt.ToString("dd.MM HH:mm")]</strong>
+                @(log.Region?.Name ?? "Неизвестно") -
+                <span style="color: @(log.Status == "success" ? "green" : "red")">@log.Status</span>
+                @if (log.DurationSeconds.HasValue)
+                {
+                    <text>(@log.DurationSeconds с)</text>
+                }
+                @if (!string.IsNullOrEmpty(log.ErrorMessage))
+                {
+                    <br /><span style="color: #dc2626;">Ошибка: @log.ErrorMessage</span>
+                }
+            </div>
+        }
+    }
+</div>
